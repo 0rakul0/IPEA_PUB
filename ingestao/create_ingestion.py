@@ -45,7 +45,8 @@ colbert_model = LateInteractionTextEmbedding(COLBERT_MODEL)
 
 db_metadata = MetadataDB()
 
-def ler_pdf_com_docling(pdf_path: Path) -> DoclingDocument:
+def ler_pdf_com_docling(pdf_path: Path):
+
     accelerator = AcceleratorOptions(
         device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU
     )
@@ -66,55 +67,62 @@ def ler_pdf_com_docling(pdf_path: Path) -> DoclingDocument:
         }
     )
 
-    result = converter.convert(str(pdf_path))
+    result = converter.convert(pdf_path)
+    document = result.document
 
-    caminho_img = pdf_path.stem
-    os.makedirs("img", exist_ok=True)
+    # 📂 Diretório organizado por documento
+    img_dir = Path("img")/pdf_path.stem
+    img_dir.mkdir(parents=True, exist_ok=True)
 
+    page_images = {}
     picture_count = 0
 
-    for element, _level in result.document.iterate_items():
+    for element, _level in document.iterate_items():
         if isinstance(element, PictureItem):
-            page_number = element.prov[0].page_no if element.prov else None
 
-            if page_number == 1:
+            page_number = element.prov[0].page_no if element.prov else None
+            if page_number is None:
                 continue
 
             picture_count += 1
 
-            image_path = f"img/{caminho_img}_picture_{picture_count}.png"
-            img = element.get_image(result.document)
-
+            image_path = img_dir / f"picture_{picture_count}.png"
+            img = element.get_image(document)
             img.save(image_path, format="PNG")
 
-    return result.document
+            page_images.setdefault(page_number, []).append(str(image_path))
+
+    return document, page_images
 
 
 
 def processar_documento() -> bool:
+
     metadata = db_metadata.buscar_pendente(randomize=True)
     if not metadata:
         return False
 
     db_metadata.atualizar_status(metadata["id"], "em processamento")
 
-    pdf_path, nome_arq = baixar_pdf_real(metadata["link_pdf"])
-
-    if not pdf_path:
+    resultado = baixar_pdf_real(metadata["link_pdf"])
+    if not resultado:
         db_metadata.atualizar_status(metadata["id"], "erro_download")
         return False
 
-    texto = ler_pdf_com_docling(pdf_path)
+    pdf_path = resultado
 
-    chunker = SemanticChunker(model_name=DENSE_MODEL, max_tokens=MAX_TOKENS)
+    document, page_images = ler_pdf_com_docling(pdf_path)
 
-    texto_markdown = texto.export_to_text(delim="\n\n")
+    chunker = SemanticChunker(model_name=DENSE_MODEL, max_tokens=MAX_TOKENS )
 
-    chunkes = chunker.create_chunks(texto_markdown)
+    blocos = document.export_to_markdown()
+
+    chunks = chunker.create_chunks(blocos)
 
     points = []
 
-    for text in chunkes:
+    for text in chunks:
+
         dense_embedding = list(dense_model.passage_embed([text]))[0].tolist()
         sparse_embedding = list(sparse_model.passage_embed([text]))[0].as_object()
         colbert_embedding = list(colbert_model.passage_embed([text]))[0].tolist()
@@ -131,12 +139,19 @@ def processar_documento() -> bool:
                 "metadata": metadata,
             }
         )
+
         points.append(point)
 
-    qdrant.upload_points(collection_name=COLLECTION_NAME, points=points, batch_size=10)
+    qdrant.upload_points(
+        collection_name=COLLECTION_NAME,
+        points=points,
+        batch_size=8,
+        wait=True,
+    )
 
     db_metadata.atualizar_status(metadata["id"], "processado")
 
+    print(f"[OK] Documento processado com {len(points)} chunks.")
     return True
 
 

@@ -70,9 +70,27 @@ class SemanticChunker:
 
         return chunks, orphans
 
+    def _split_long_paragraph(self, paragraph: str):
+        tokens = self.tokenizer.tokenize(paragraph, add_special_tokens=False)
+
+        if len(tokens) <= self.max_tokens:
+            return [paragraph]
+
+        chunks = []
+        for i in range(0, len(tokens), self.max_tokens):
+            sub_tokens = tokens[i:i + self.max_tokens]
+            sub_text = self.tokenizer.convert_tokens_to_string(sub_tokens)
+            chunks.append(sub_text)
+
+        return chunks
+
     def create_chunks(self, text_content: str):
 
-        paragraphs = [p.strip() for p in text_content.split("\n") if len(p.strip().split()) > 10]
+        raw_paragraphs = [p.strip() for p in text_content.split("\n\n") if len(p.strip().split()) > 10]
+
+        paragraphs = []
+        for p in raw_paragraphs:
+            paragraphs.extend(self._split_long_paragraph(p))
 
         if not paragraphs:
             return []
