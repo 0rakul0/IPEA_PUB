@@ -1,3 +1,4 @@
+import re
 import warnings
 from collections import defaultdict
 
@@ -86,7 +87,31 @@ class SemanticChunker:
 
     def create_chunks(self, text_content: str):
 
-        raw_paragraphs = [p.strip() for p in text_content.split("\n\n") if len(p.strip().split()) > 10]
+        text_content = str(text_content).lower()
+
+        text_content = re.sub(r"\r\n?", "\n", text_content)
+        text_content = re.sub(r"\.\n", "\n\n", text_content)
+
+
+        raw_paragraphs = [
+            p.strip() for p in text_content.split("\n\n")
+            if len(p.strip().split()) > 10
+        ]
+
+        # 3️⃣ fallback se só tiver 1 bloco gigante
+        if len(raw_paragraphs) <= 1:
+            raw_paragraphs = [
+                p.strip() for p in text_content.split("\n")
+                if len(p.strip().split()) > 10
+            ]
+
+        # 4️⃣ fallback mais agressivo: quebra por sentença
+        if len(raw_paragraphs) <= 1:
+            raw_paragraphs = [
+                p.strip()
+                for p in re.split(r'(?<=[\.\?\!])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])', text_content)
+                if len(p.strip().split()) > 10
+            ]
 
         paragraphs = []
         for p in raw_paragraphs:
@@ -98,7 +123,9 @@ class SemanticChunker:
         final_chunks, orphans = self._cluster_and_process(paragraphs, self.min_cluster_size)
 
         if len(orphans) > 1:
-            orphans_chunks, single_orphans = self._cluster_and_process(orphans, self.orphan_cluster_size)
+            orphans_chunks, single_orphans = self._cluster_and_process(
+                orphans, self.orphan_cluster_size
+            )
             final_chunks.extend(orphans_chunks)
             final_chunks.extend(single_orphans)
         else:

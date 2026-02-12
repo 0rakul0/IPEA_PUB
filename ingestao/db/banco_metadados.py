@@ -46,6 +46,57 @@ class MetadataDB:
             """)
             conn.commit()
 
+    def remover_duplicatas(self) -> int:
+        """
+        Remove documentos duplicados com base em (titulo, ano, resumo).
+
+        Mantém o registro com menor rowid (mais antigo inserido).
+        Retorna o número de registros removidos.
+        """
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+
+            # 1️⃣ Identificar grupos duplicados
+            cursor.execute("""
+                SELECT 
+                    MIN(rowid) as keep_rowid,
+                    GROUP_CONCAT(rowid) as all_rowids,
+                    COUNT(*) as total
+                FROM documentos
+                WHERE titulo IS NOT NULL
+                  AND resumo IS NOT NULL
+                  AND ano IS NOT NULL
+                GROUP BY 
+                    LOWER(TRIM(titulo)),
+                    ano,
+                    LOWER(TRIM(resumo))
+                HAVING COUNT(*) > 1
+            """)
+
+            duplicados = cursor.fetchall()
+
+            total_removidos = 0
+
+            for row in duplicados:
+                keep_rowid = row["keep_rowid"]
+                all_rowids = row["all_rowids"].split(",")
+
+                # remover todos exceto o keep_rowid
+                rowids_para_remover = [r for r in all_rowids if int(r) != keep_rowid]
+
+                if rowids_para_remover:
+                    cursor.execute(f"""
+                        DELETE FROM documentos
+                        WHERE rowid IN ({','.join(['?'] * len(rowids_para_remover))})
+                    """, rowids_para_remover)
+
+                    total_removidos += len(rowids_para_remover)
+
+            conn.commit()
+
+            return total_removidos
+
+
     def inserir_documento(self, document: Dict[str, Any]) -> None:
         """Insere ou substitui um documento por id."""
         with self.conectar() as conn:
@@ -106,14 +157,26 @@ class MetadataDB:
     def buscar_pendente(self, randomize: bool = False) -> Optional[Dict[str, Any]]:
         """
         Busca e reserva um documento pendente
-
-        Args:
-            randomize (bool): Se True, seleciona um documento aleatório.
         """
         with self.conectar() as conn:
             cursor = conn.cursor()
-            query = ("SELECT * FROM documentos WHERE status_ingestao = 'pendente' "
-                     + ("ORDER BY RANDOM() LIMIT 1" if randomize else "LIMIT 1"))
+
+            if randomize:
+                query = """
+                    SELECT * 
+                    FROM documentos 
+                    WHERE status_ingestao = 'pendente'
+                    ORDER BY RANDOM()
+                    LIMIT 1
+                """
+            else:
+                query = """
+                    SELECT * 
+                    FROM documentos 
+                    WHERE status_ingestao = 'pendente'
+                    ORDER BY id ASC
+                    LIMIT 1
+                """
 
             cursor.execute(query)
             row = cursor.fetchone()

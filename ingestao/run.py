@@ -1,4 +1,5 @@
 from ingestao import create_ingestion
+from db.banco_metadados import MetadataDB
 from scraper import Scraper
 
 import time
@@ -6,26 +7,27 @@ import os
 
 TOTAL_PAGES = 860
 
-if __name__ == "__main__":
+db_metadata = MetadataDB()
 
-    # scraper = Scraper()
-    # for i in range(1, 860):
-    #     scraper.processar_pagina(i)
-    #
-    # time.sleep(5)
+scraper = Scraper()
+for i in range(1, 860):
+    scraper.processar_pagina(i)
 
-    if os.name == "nt":
-        os.system('cls')
+time.sleep(5)
 
-    while True:
-        try:
-            sucesso = create_ingestion.processar_documento()
-            if not sucesso:
-                break
-        except Exception as e:
-            print(f"Erro ao processar documento. Continuando com o próximo... {e}")
-            continue
-    print("Pipeline concluído.")
+removidos = db_metadata.remover_duplicatas()
+print(f"{removidos} registros duplicados removidos.")
+
+if os.name == "nt":
+    os.system('cls')
+
+
+while True:
+    sucesso = create_ingestion.processar_documento()
+    if not sucesso:
+        break
+
+print("Pipeline concluído.")
 
 
 

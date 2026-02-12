@@ -13,3 +13,4 @@ api/.env
 /ingestao/img
 /.idea
 .env
+api/.env
