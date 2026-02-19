@@ -122,7 +122,7 @@ def _url_to_cache_filename(url: str) -> Path:
 
 session = create_retry_session(total_retries=2)
 
-def baixar_pdf_real(link_pagina: str) -> Optional[Path]:
+def baixar_pdf_real(link_pagina: str) -> Optional[Tuple[Path, str]]:
 
     """
     Retorna:
@@ -178,7 +178,7 @@ def baixar_pdf_real(link_pagina: str) -> Optional[Path]:
     # 📦 Cache hit
     if cache_path.exists():
         print("[Crawler] PDF recuperado do cache")
-        return cache_path
+        return cache_path, download_url
 
 
     # 💾 Salvar
@@ -187,4 +187,4 @@ def baixar_pdf_real(link_pagina: str) -> Optional[Path]:
 
     print(f"[Crawler] PDF salvo em cache:\n  {cache_path}")
 
-    return cache_path
+    return cache_path, download_url

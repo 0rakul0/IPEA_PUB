@@ -139,12 +139,14 @@ def processar_documento() -> bool:
 
     db_metadata.atualizar_status(metadata["id"], "em processamento")
 
-    pdf_path = baixar_pdf_real(metadata["link_pdf"])
+    pdf_path, link_download = baixar_pdf_real(metadata["link_pdf"])
 
     if not pdf_path:
         print("[Ingestão] Documento sem PDF válido. Pulando.")
         db_metadata.atualizar_status(metadata["id"], "sem_pdf")
         return True
+    else:
+        db_metadata.atualizar_link_donwload(metadata["id"], f"{link_download}")
 
     document, page_images = ler_pdf_com_docling(pdf_path)
 

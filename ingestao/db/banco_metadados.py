@@ -40,6 +40,7 @@ class MetadataDB:
                     resumo TEXT,
                     palavras_chave TEXT,
                     link_pdf TEXT,
+                    link_download TEXT,
                     status_ingestao TEXT,
                     data_ingestao TEXT
                 );
@@ -104,11 +105,12 @@ class MetadataDB:
             cursor.execute("""
                 INSERT OR REPLACE INTO documentos (
                     id, titulo, autores, ano, tipo_conteudo,
-                    resumo, palavras_chave, link_pdf,
+                    resumo, palavras_chave, link_pdf, link_download,
                     status_ingestao, data_ingestao
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
+
                 document.get("id"),
                 document.get("titulo"),
                 document.get("autores"),
@@ -117,6 +119,7 @@ class MetadataDB:
                 document.get("resumo"),
                 document.get("palavras_chave"),
                 document.get("link_pdf"),
+                document.get("link_download"),
                 document.get("status_ingestao"),
                 document.get("data_ingestao"),
             ))
@@ -137,7 +140,7 @@ class MetadataDB:
             cursor.execute("""
                 UPDATE documentos
                 SET titulo = ?, autores = ?, ano = ?, tipo_conteudo = ?,
-                    resumo = ?, palavras_chave = ?, link_pdf = ?,
+                    resumo = ?, palavras_chave = ?, link_pdf = ?, link_download = ?,
                     status_ingestao = ?, data_ingestao = ?
                 WHERE id = ?
             """, (
@@ -148,6 +151,7 @@ class MetadataDB:
                 document.get("resumo"),
                 document.get("palavras_chave"),
                 document.get("link_pdf"),
+                document.get("link_download"),
                 document.get("status_ingestao"),
                 document.get("data_ingestao"),
                 document.get("id"),
@@ -191,4 +195,15 @@ class MetadataDB:
                 SET status_ingestao = ?
                 WHERE id = ?
             """, (status, id))
+            conn.commit()
+
+    def atualizar_link_donwload(self, id: str, link_download: str) -> None:
+        """Atualiza apenas o status_ingestao do documento."""
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE documentos
+                SET link_download = ?
+                WHERE id = ?
+            """, (link_download, id))
             conn.commit()

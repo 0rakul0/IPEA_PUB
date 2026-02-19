@@ -79,6 +79,7 @@ class Scraper:
                     "resumo": item["resumo"],
                     "palavras_chave": item["palavras_chave"],
                     "link_pdf": item["handle"],
+                    "link_download": None,
                     "status_ingestao": "pendente",
                     "data_ingestao": datetime.now(timezone.utc).isoformat(),
                 }

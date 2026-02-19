@@ -1,4 +1,4 @@
-from ingestao import create_ingestion
+# from ingestao import create_ingestion
 from db.banco_metadados import MetadataDB
 from scraper import Scraper
 
@@ -17,17 +17,17 @@ time.sleep(5)
 
 removidos = db_metadata.remover_duplicatas()
 print(f"{removidos} registros duplicados removidos.")
-
-if os.name == "nt":
-    os.system('cls')
-
-
-while True:
-    sucesso = create_ingestion.processar_documento()
-    if not sucesso:
-        break
-
-print("Pipeline concluído.")
-
-
-
+#
+# if os.name == "nt":
+#     os.system('cls')
+#
+#
+# while True:
+#     sucesso = create_ingestion.processar_documento()
+#     if not sucesso:
+#         break
+#
+# print("Pipeline concluído.")
+#
+#
+#

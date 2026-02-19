@@ -98,14 +98,12 @@ class SemanticChunker:
             if len(p.strip().split()) > 10
         ]
 
-        # 3️⃣ fallback se só tiver 1 bloco gigante
         if len(raw_paragraphs) <= 1:
             raw_paragraphs = [
                 p.strip() for p in text_content.split("\n")
                 if len(p.strip().split()) > 10
             ]
 
-        # 4️⃣ fallback mais agressivo: quebra por sentença
         if len(raw_paragraphs) <= 1:
             raw_paragraphs = [
                 p.strip()
