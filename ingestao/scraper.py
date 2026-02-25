@@ -1,8 +1,8 @@
 import requests
 from typing import Any, Dict, List
 from datetime import datetime, timezone
-from utils.clean_itens import clean_item
-from db.banco_metadados import MetadataDB
+from ingestao.utils.clean_itens import clean_item
+from ingestao.db.banco_metadados import MetadataDB
 
 BASE = "https://repositorio.ipea.gov.br/server/api/discover/browses/dateissued/items?sort=dateissued,DESC"
 
@@ -25,7 +25,7 @@ class Scraper:
         sep = "&" if "?" in self.base_api else "?"
         url = f"{self.base_api}{sep}page={page_number}"
 
-        r = requests.get(url, timeout=15)
+        r = requests.get(url, timeout=120)
         r.raise_for_status()
         data = r.json()
         return data["_embedded"]["items"]

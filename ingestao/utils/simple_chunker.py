@@ -42,7 +42,6 @@ class SimpleChunker:
             para_tokens = self.count_tokens(para)
 
             if para_tokens > self.max_tokens:
-                # quebra parágrafo grande
                 words = para.split()
                 temp = ""
 

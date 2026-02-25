@@ -17,7 +17,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 
-
 CRAWLER_URL = "https://repositorio.ipea.gov.br"
 CRAWLER_HEADER = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
@@ -132,11 +131,11 @@ def baixar_pdf_real(link_pagina: str) -> Optional[Tuple[Path, str]]:
     print(f"[Crawler] Acessando página do documento:\n  {link_pagina}")
 
     try:
-        resp = session.get(link_pagina, headers=CRAWLER_HEADER, timeout=60)
+        resp = session.get(link_pagina, headers=CRAWLER_HEADER, timeout=120)
         resp.raise_for_status()
     except Exception as e:
         print(f"[Crawler] ERRO ao acessar página: {e}")
-        return None
+        return None, None
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -149,7 +148,7 @@ def baixar_pdf_real(link_pagina: str) -> Optional[Tuple[Path, str]]:
 
     if not download_url:
         print("[Crawler] Nenhum link de download encontrado.")
-        return None
+        return None, None
 
     print(f"[Crawler] Botão de download encontrado:\n  {download_url}")
 
@@ -163,11 +162,11 @@ def baixar_pdf_real(link_pagina: str) -> Optional[Tuple[Path, str]]:
         r.raise_for_status()
     except Exception as e:
         print(f"[Crawler] ERRO ao baixar PDF: {e}")
-        return None
+        return None, None
 
     if not r.content.startswith(b"%PDF"):
         print("[Crawler] Conteúdo não parece ser um PDF válido.")
-        return None
+        return None, None
 
     # 🔐 Calcular hash
     sha256_hash = hashlib.sha256(r.content).hexdigest()

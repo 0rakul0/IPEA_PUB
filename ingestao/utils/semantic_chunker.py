@@ -4,9 +4,7 @@ from collections import defaultdict
 
 import hdbscan
 import torch
-from anyio.lowlevel import current_token
 from sentence_transformers import SentenceTransformer
-from transformers import AutoTokenizer
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -17,18 +15,18 @@ class SemanticChunker:
         model_name: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
         min_cluster_size: int = 3,
         orphan_cluster_size: int = 2,
-        max_tokens: int = 512,
+        max_tokens: int = 290,
     ):
         device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.model = SentenceTransformer(model_name, device=device)
 
-        self.model.max_seq_length = 512
+        self.model.max_seq_length = 480
 
         self.min_cluster_size = min_cluster_size
         self.orphan_cluster_size = orphan_cluster_size
         self.max_tokens = max_tokens
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = self.model.tokenizer
 
     def _cluster_and_process(self, texts, min_size):
         if len(texts) <= 1:
@@ -87,22 +85,10 @@ class SemanticChunker:
 
     def create_chunks(self, text_content: str):
 
-        text_content = str(text_content).lower()
-
-        text_content = re.sub(r"\r\n?", "\n", text_content)
-        text_content = re.sub(r"\.\n", "\n\n", text_content)
-
-
         raw_paragraphs = [
-            p.strip() for p in text_content.split("\n\n")
+            p.strip().lower() for p in text_content.split("\n\n")
             if len(p.strip().split()) > 10
         ]
-
-        if len(raw_paragraphs) <= 1:
-            raw_paragraphs = [
-                p.strip() for p in text_content.split("\n")
-                if len(p.strip().split()) > 10
-            ]
 
         if len(raw_paragraphs) <= 1:
             raw_paragraphs = [

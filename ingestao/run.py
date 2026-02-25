@@ -5,12 +5,12 @@ from scraper import Scraper
 import time
 import os
 
-TOTAL_PAGES = 860
+TOTAL_PAGES = 10 #860
 
 db_metadata = MetadataDB()
 
 scraper = Scraper()
-for i in range(1, 860):
+for i in range(1, TOTAL_PAGES):
     scraper.processar_pagina(i)
 
 time.sleep(5)

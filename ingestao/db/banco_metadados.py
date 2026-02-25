@@ -175,11 +175,11 @@ class MetadataDB:
                 """
             else:
                 query = """
-                    SELECT * 
-                    FROM documentos 
-                    WHERE status_ingestao = 'pendente'
+                    SELECT *
+                    FROM documentos
+                    WHERE status_ingestao != 'processado'
                     ORDER BY id ASC
-                    LIMIT 1
+                    LIMIT 1;
                 """
 
             cursor.execute(query)
@@ -207,3 +207,12 @@ class MetadataDB:
                 WHERE id = ?
             """, (link_download, id))
             conn.commit()
+
+    def buscar_erros(self):
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM documentos
+                WHERE status_ingestao = 'erro'
+            """)
+            return [dict(r) for r in cursor.fetchall()]

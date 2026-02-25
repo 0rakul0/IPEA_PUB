@@ -1,15 +1,12 @@
 import os
 import re
 import uuid
-import hashlib
 from pathlib import Path
-from typing import Optional
 from collections import defaultdict, Counter
+from tqdm import tqdm
 
 import torch
 
-from docling_core.transforms.chunker import HybridChunker
-from docling_core.types import DoclingDocument
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
 from fastembed import TextEmbedding, SparseTextEmbedding, LateInteractionTextEmbedding
@@ -21,9 +18,11 @@ from docling.document_converter import DocumentConverter, PdfFormatOption
 
 from docling_core.types.doc import PictureItem
 
-from utils.semantic_chunker import SemanticChunker
-from utils.clean_itens import baixar_pdf_real
-from db.banco_metadados import MetadataDB
+from ingestao.utils.semantic_chunker import SemanticChunker
+from ingestao.utils.clean_itens import baixar_pdf_real
+from ingestao.db.banco_metadados import MetadataDB
+import logging
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -39,6 +38,7 @@ MAX_TOKENS = 290
 
 qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
+    timeout=120,
 )
 
 dense_model = TextEmbedding(DENSE_MODEL)
@@ -46,6 +46,27 @@ sparse_model = SparseTextEmbedding(SPARSE_MODEL)
 colbert_model = LateInteractionTextEmbedding(COLBERT_MODEL)
 
 db_metadata = MetadataDB()
+
+LOG_DIR = Path(__file__).resolve().parent / "logs"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+def criar_logger_documento(doc_id: str) -> logging.Logger:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    log_file = LOG_DIR / f"erro_{doc_id}_{timestamp}.log"
+
+    logger = logging.getLogger(f"doc_{doc_id}")
+    logger.setLevel(logging.ERROR)
+
+    handler = logging.FileHandler(log_file, encoding="utf-8")
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s"
+    )
+    handler.setFormatter(formatter)
+
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    return logger
 
 def ler_pdf_com_docling(pdf_path: Path):
 
@@ -102,7 +123,6 @@ def limpar_texto(texto: str) -> str:
 
     return texto.strip()
 
-
 def remover_linhas_repetidas(texto: str, limite_repeticao: int = 5) -> str:
     linhas = [l.strip() for l in texto.split("\n") if l.strip()]
     contagem = Counter(linhas)
@@ -113,7 +133,6 @@ def remover_linhas_repetidas(texto: str, limite_repeticao: int = 5) -> str:
     ]
 
     return "\n".join(linhas_filtradas)
-
 
 def remover_watermark_curto(texto: str, limite_repeticao=3, tamanho_max=40):
     linhas = [l.strip() for l in texto.split("\n") if l.strip()]
@@ -131,69 +150,83 @@ def remover_watermark_curto(texto: str, limite_repeticao=3, tamanho_max=40):
     return "\n".join(linhas_filtradas)
 
 
-
 def processar_documento() -> bool:
     metadata = db_metadata.buscar_pendente()
     if not metadata:
         return False
 
-    db_metadata.atualizar_status(metadata["id"], "em processamento")
+    doc_id = metadata["id"]
+    logger = criar_logger_documento(doc_id)
 
-    pdf_path, link_download = baixar_pdf_real(metadata["link_pdf"])
+    try:
+        db_metadata.atualizar_status(doc_id, "em processamento")
 
-    if not pdf_path:
-        print("[Ingestão] Documento sem PDF válido. Pulando.")
-        db_metadata.atualizar_status(metadata["id"], "sem_pdf")
-        return True
-    else:
-        db_metadata.atualizar_link_donwload(metadata["id"], f"{link_download}")
+        resultado = baixar_pdf_real(metadata["link_pdf"])
 
-    document, page_images = ler_pdf_com_docling(pdf_path)
+        if not resultado or not resultado[0]:
+            db_metadata.atualizar_status(doc_id, "sem_pdf")
+            return True
 
-    chunker = SemanticChunker(model_name=DENSE_MODEL, max_tokens=MAX_TOKENS)
+        pdf_path, link_download = resultado
+        db_metadata.atualizar_link_donwload(doc_id, link_download)
 
-    textos_por_pagina = defaultdict(str)
+        document, page_images = ler_pdf_com_docling(pdf_path)
 
-    for element, _level in document.iterate_items():
-        if not hasattr(element, "text") or not element.text:
-            continue
-        page_number = element.prov[0].page_no if element.prov else None
-        if page_number is None:
-            continue
+        chunker = SemanticChunker(
+            model_name=DENSE_MODEL,
+            max_tokens=MAX_TOKENS
+        )
 
-        texto_limpo = limpar_texto(element.text)
-        texto_limpo = remover_linhas_repetidas(texto_limpo)
-        texto_limpo = remover_watermark_curto(texto_limpo)
+        textos_por_pagina = defaultdict(str)
 
-        # Se for título
-        if element.label and "title" in element.label.lower():
-            textos_por_pagina[page_number] += f"\n## {texto_limpo}\n\n"
-        else:
-            textos_por_pagina[page_number] += f"{texto_limpo}\n\n"
+        for element, _level in document.iterate_items():
+            if not hasattr(element, "text") or not element.text:
+                continue
 
-    points = []
+            page_number = element.prov[0].page_no if element.prov else None
+            if page_number is None:
+                continue
 
-    for page_number, bloco_texto in textos_por_pagina.items():
+            texto_limpo = limpar_texto(element.text)
+            texto_limpo = remover_linhas_repetidas(texto_limpo)
+            texto_limpo = remover_watermark_curto(texto_limpo)
 
-        chunks = chunker.create_chunks(bloco_texto)
+            if texto_limpo:
+                textos_por_pagina[page_number] += texto_limpo + "\n\n"
 
-        for text_chunk in chunks:
+        buffer = []
+        buffer_size = 4  # reduzido para estabilidade
+        total_chunks = 0
+        upload_failed = False
 
-            dense_embedding = list(dense_model.passage_embed([text_chunk]))[0].tolist()
-            sparse_embedding = list(sparse_model.passage_embed([text_chunk]))[0].as_object()
-            colbert_embedding = list(colbert_model.passage_embed([text_chunk]))[0].tolist()
+        for page_number, bloco_texto in tqdm(textos_por_pagina.items()):
 
-            point = models.PointStruct(
-                id=str(uuid.uuid4()),
-                vector={
-                    "dense": dense_embedding,
-                    "sparse": sparse_embedding,
-                    "colbert": colbert_embedding,
-                },
-                payload={
+            chunks = chunker.create_chunks(bloco_texto)
+
+            for text_chunk in chunks:
+
+                # ⚠️ proteção ColBERT (128 tokens)
+                if len(text_chunk.split()) > 120:
+                    text_chunk = " ".join(text_chunk.split()[:120])
+
+                total_chunks += 1
+
+                dense_embedding = list(
+                    dense_model.passage_embed([text_chunk])
+                )[0].tolist()
+
+                sparse_embedding = list(
+                    sparse_model.passage_embed([text_chunk])
+                )[0].as_object()
+
+                colbert_embedding = list(
+                    colbert_model.passage_embed([text_chunk])
+                )[0].tolist()
+
+                payload = {
                     "text": text_chunk,
                     "metadata": {
-                        "document_id": metadata["id"],
+                        "document_id": doc_id,
                         "titulo": metadata.get("titulo"),
                         "autores": metadata.get("autores"),
                         "ano": metadata.get("ano"),
@@ -203,26 +236,74 @@ def processar_documento() -> bool:
                         "imagens_pagina": page_images.get(page_number, []),
                     },
                 }
-            )
 
-            points.append(point)
+                point = models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        "dense": dense_embedding,
+                        "sparse": sparse_embedding,
+                        "colbert": colbert_embedding,
+                    },
+                    payload=payload,
+                )
 
-    qdrant.upload_points(
-        collection_name=COLLECTION_NAME,
-        points=points,
-        batch_size=8,
-        wait=True,
-    )
+                buffer.append(point)
 
-    db_metadata.atualizar_status(metadata["id"], "processado")
+                if len(buffer) >= buffer_size:
+                    try:
+                        qdrant.upload_points(
+                            collection_name=COLLECTION_NAME,
+                            points=buffer,
+                            wait=True,
+                        )
+                        buffer.clear()
+                    except Exception as e:
+                        logger.exception(f"Erro batch Qdrant: {e}")
+                        upload_failed = True
+                        break
 
-    print(f"[OK] Documento processado com {len(points)} chunks.\n\n")
-    return True
+            if upload_failed:
+                break
 
+        # 🔥 flush final FORA do loop principal
+        if not upload_failed and buffer:
+            try:
+                qdrant.upload_points(
+                    collection_name=COLLECTION_NAME,
+                    points=buffer,
+                    wait=True,
+                )
+                buffer.clear()
+            except Exception as e:
+                logger.exception(f"Erro batch final Qdrant: {e}")
+                upload_failed = True
+
+        if upload_failed:
+            db_metadata.atualizar_status(doc_id, "erro")
+            print(f"[ERRO] Documento {doc_id} falhou no upload.")
+            return True
+
+        db_metadata.atualizar_status(doc_id, "processado")
+        print(f"[OK] Documento {doc_id} processado com {total_chunks} chunks.\n")
+        return True
+
+    except Exception as e:
+        logger.exception(
+            f"Erro ao processar documento {doc_id}\n"
+            f"Metadata: {metadata}\n"
+            f"Erro: {str(e)}\n{'-'*80}\n"
+        )
+
+        db_metadata.atualizar_status(doc_id, "erro")
+        print(f"[ERRO] Documento {doc_id} falhou. Log salvo.")
+        return True
 
 while True:
-    sucesso = processar_documento()
-    if not sucesso:
-        break
-
+    try:
+        sucesso = processar_documento()
+        if not sucesso:
+            break
+    except Exception as e:
+        print(f"Erro inesperado: {e}")
+        continue
 print("Pipeline concluído.")
