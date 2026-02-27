@@ -28,16 +28,17 @@ load_dotenv()
 
 FILE_PATH = "data"
 
-DENSE_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+DENSE_MODEL = "intfloat/multilingual-e5-large"
 SPARSE_MODEL = "Qdrant/bm25"
 COLBERT_MODEL = "colbert-ir/colbertv2.0"
 COLLECTION_NAME = "publicacoes_ipea"
 
 EMAIL = "jefferson.ti@hotmail.com"
-MAX_TOKENS = 290
+MAX_TOKENS = 500
 
 qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY"),
     timeout=120,
 )
 
@@ -68,7 +69,7 @@ def criar_logger_documento(doc_id: str) -> logging.Logger:
 
     return logger
 
-def ler_pdf_com_docling(pdf_path: Path):
+def ler_pdf_com_docling_com_imagem(pdf_path: Path):
 
     accelerator = AcceleratorOptions(
         device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU
@@ -80,8 +81,8 @@ def ler_pdf_com_docling(pdf_path: Path):
         ocr_options=EasyOcrOptions(lang=["pt", "en"]),
         accelerator_options=accelerator,
         generate_page_images=False,
-        images_scale=1.5,
-        generate_picture_images=True
+        images_scale=1.0,
+        generate_picture_images=False
     )
 
     converter = DocumentConverter(
@@ -115,6 +116,34 @@ def ler_pdf_com_docling(pdf_path: Path):
                 page_images.setdefault(page_number, []).append(str(image_path))
 
     return document, page_images
+
+def ler_pdf_com_docling(pdf_path: Path):
+
+    accelerator = AcceleratorOptions(
+        device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU
+    )
+
+    pdf_options = PdfPipelineOptions(
+        do_ocr=True,
+        do_table_structure=False,
+        ocr_options=EasyOcrOptions(lang=["pt", "en"]),
+        accelerator_options=accelerator,
+        generate_page_images=False,
+        images_scale=1.0,
+        generate_picture_images=False  # mantido False
+    )
+
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)
+        }
+    )
+
+    result = converter.convert(pdf_path)
+    document = result.document
+
+    return document
+
 
 def limpar_texto(texto: str) -> str:
     texto = re.sub(r"glyph<[^>]+>", "", texto)
@@ -170,7 +199,8 @@ def processar_documento() -> bool:
         pdf_path, link_download = resultado
         db_metadata.atualizar_link_donwload(doc_id, link_download)
 
-        document, page_images = ler_pdf_com_docling(pdf_path)
+        document = ler_pdf_com_docling(pdf_path)
+        # document, page_images = ler_pdf_com_docling(pdf_path)
 
         chunker = SemanticChunker(
             model_name=DENSE_MODEL,
@@ -233,7 +263,6 @@ def processar_documento() -> bool:
                         "tipo_conteudo": metadata.get("tipo_conteudo"),
                         "palavras_chave": metadata.get("palavras_chave"),
                         "pagina": page_number,
-                        "imagens_pagina": page_images.get(page_number, []),
                     },
                 }
 

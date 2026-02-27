@@ -1,9 +1,10 @@
 from transformers import AutoTokenizer
 import re
+
 class SimpleChunker:
     def __init__(self,
-                 model_name: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
-                 max_tokens: int = 440):
+                 model_name: str = "intfloat/multilingual-e5-large",
+                 max_tokens: int = 500):
         self.max_tokens = max_tokens
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 

@@ -1,5 +1,5 @@
 import os
-import uuid
+
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
 
@@ -7,12 +7,10 @@ load_dotenv()
 
 COLLECTION_NAME = "publicacoes_ipea"
 
-DENSE_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-COLBERT_MODEL = "colbert-ir/colbertv2.0"
-SPARSE_MODEL = "Qdrant/bm25"
-
 qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY"),
+    timeout=120,
 )
 
 qdrant.delete_collection(COLLECTION_NAME)
@@ -20,7 +18,9 @@ qdrant.delete_collection(COLLECTION_NAME)
 qdrant.create_collection(
     collection_name=COLLECTION_NAME,
     vectors_config={
-        "dense": models.VectorParams(size=768, distance=models.Distance.COSINE),
+        "dense": models.VectorParams(size=1024,
+                                     distance=models.Distance.COSINE,
+                                     on_disk=True),
         "colbert": models.VectorParams(
             size=128,
             distance=models.Distance.COSINE,
@@ -29,5 +29,12 @@ qdrant.create_collection(
             )
         ),
     },
-    sparse_vectors_config={"sparse": models.SparseVectorParams()}
+    sparse_vectors_config={"sparse": models.SparseVectorParams()},
+    quantization_config=models.ScalarQuantization(
+        scalar=models.ScalarQuantizationConfig(
+            type=models.ScalarType.INT8,
+            quantile=0.99,
+            always_ram=True
+        )
+    )
 )

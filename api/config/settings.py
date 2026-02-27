@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     qdrant_url: str
     collecion_name: str = "publicacoes_ipea"
 
-    dense_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    dense_model: str = "intfloat/multilingual-e5-large"
     sparse_model: str = "Qdrant/bm25"
     colbert_model: str = "colbert-ir/colbertv2.0"
 

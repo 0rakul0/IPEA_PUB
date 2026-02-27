@@ -12,17 +12,14 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 class SemanticChunker:
     def __init__(
         self,
-        model_name: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2",
+        model_name: str = "intfloat/multilingual-e5-large",
         min_cluster_size: int = 3,
         orphan_cluster_size: int = 2,
-        max_tokens: int = 290,
+        max_tokens: int = 500,
     ):
         device = "cuda" if torch.cuda.is_available() else "cpu"
-
         self.model = SentenceTransformer(model_name, device=device)
-
-        self.model.max_seq_length = 480
-
+        self.model.max_seq_length = 500
         self.min_cluster_size = min_cluster_size
         self.orphan_cluster_size = orphan_cluster_size
         self.max_tokens = max_tokens
