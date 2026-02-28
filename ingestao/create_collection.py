@@ -38,3 +38,19 @@ qdrant.create_collection(
         )
     )
 )
+
+
+fields_to_index = [
+    ("metadata.document_id", models.PayloadSchemaType.KEYWORD),
+    ("metadata.titulo", models.PayloadSchemaType.KEYWORD),
+    ("metadata.ano", models.PayloadSchemaType.INTEGER),
+    ("metadata.tipo_conteudo", models.PayloadSchemaType.KEYWORD),
+]
+
+for field_name, schema in fields_to_index:
+    qdrant.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name=field_name,
+        field_schema=schema,
+    )
+    print(f"Índice criado para {field_name}")

@@ -1,11 +1,15 @@
 import os
-import re
 import uuid
 from pathlib import Path
-from collections import defaultdict, Counter
+
+from docling_core.transforms.chunker import HybridChunker
 from tqdm import tqdm
+import shutil
+import logging
+from datetime import datetime, timezone
 
 import torch
+import pymupdf
 
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient, models
@@ -15,26 +19,26 @@ from docling.datamodel.base_models import InputFormat
 from docling.datamodel.pipeline_options import PdfPipelineOptions, EasyOcrOptions
 from docling.datamodel.accelerator_options import AcceleratorDevice, AcceleratorOptions
 from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from transformers import AutoTokenizer
 
-from docling_core.types.doc import PictureItem
-
-from ingestao.utils.semantic_chunker import SemanticChunker
 from ingestao.utils.clean_itens import baixar_pdf_real
 from ingestao.db.banco_metadados import MetadataDB
-import logging
-from datetime import datetime, timezone
+
+
+# ======================================
+# CONFIGURAÇÕES
+# ======================================
 
 load_dotenv()
-
-FILE_PATH = "data"
 
 DENSE_MODEL = "intfloat/multilingual-e5-large"
 SPARSE_MODEL = "Qdrant/bm25"
 COLBERT_MODEL = "colbert-ir/colbertv2.0"
+
 COLLECTION_NAME = "publicacoes_ipea"
 
-EMAIL = "jefferson.ti@hotmail.com"
-MAX_TOKENS = 500
+MAX_TOKENS = 600
 
 qdrant = QdrantClient(
     url=os.getenv("QDRANT_URL"),
@@ -42,14 +46,27 @@ qdrant = QdrantClient(
     timeout=120,
 )
 
+print(qdrant.get_collections())
+
 dense_model = TextEmbedding(DENSE_MODEL)
 sparse_model = SparseTextEmbedding(SPARSE_MODEL)
 colbert_model = LateInteractionTextEmbedding(COLBERT_MODEL)
 
+hf_tokenizer = AutoTokenizer.from_pretrained(DENSE_MODEL)
+
+tokenizer_chunker = HuggingFaceTokenizer(
+    tokenizer=hf_tokenizer,
+    max_tokens=MAX_TOKENS
+)
 db_metadata = MetadataDB()
 
 LOG_DIR = Path(__file__).resolve().parent / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ======================================
+# LOGGER
+# ======================================
 
 def criar_logger_documento(doc_id: str) -> logging.Logger:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -59,9 +76,7 @@ def criar_logger_documento(doc_id: str) -> logging.Logger:
     logger.setLevel(logging.ERROR)
 
     handler = logging.FileHandler(log_file, encoding="utf-8")
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     handler.setFormatter(formatter)
 
     logger.addHandler(handler)
@@ -69,68 +84,67 @@ def criar_logger_documento(doc_id: str) -> logging.Logger:
 
     return logger
 
-def ler_pdf_com_docling_com_imagem(pdf_path: Path):
 
-    accelerator = AcceleratorOptions(
-        device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU
+# ======================================
+# VERIFICAÇÃO NO QDRANT
+# ======================================
+
+def documento_ja_indexado(doc_id: str) -> bool:
+    result = qdrant.count(
+        collection_name=COLLECTION_NAME,
+        count_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.document_id",
+                    match=models.MatchValue(value=doc_id)
+                )
+            ]
+        )
     )
+    return result.count > 0
 
-    pdf_options = PdfPipelineOptions(
-        do_ocr=True,
-        do_table_structure=False,
-        ocr_options=EasyOcrOptions(lang=["pt", "en"]),
-        accelerator_options=accelerator,
-        generate_page_images=False,
-        images_scale=1.0,
-        generate_picture_images=False
-    )
 
-    converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)
-        }
-    )
+# ======================================
+# PDF FRAGMENTAÇÃO (APENAS PARA MEMÓRIA)
+# ======================================
 
-    result = converter.convert(pdf_path)
-    document = result.document
+def split_pdf_em_blocos(pdf_path: Path, temp_dir: Path, pages_per_chunk: int = 5):
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    blocos = []
 
-    img_dir = Path("img")/pdf_path.stem
-    img_dir.mkdir(parents=True, exist_ok=True)
+    with pymupdf.open(pdf_path) as doc:
+        total_pages = len(doc)
 
-    page_images = {}
-    picture_count = 0
+        for start in range(0, total_pages, pages_per_chunk):
+            end = min(start + pages_per_chunk - 1, total_pages - 1)
 
-    for element, _level in document.iterate_items():
-        if isinstance(element, PictureItem):
+            new_doc = pymupdf.open()
+            new_doc.insert_pdf(doc, from_page=start, to_page=end)
 
-            page_number = element.prov[0].page_no if element.prov else None
-            if page_number is None:
-                continue
+            block_number = (start // pages_per_chunk) + 1
+            page_path = temp_dir / f"{pdf_path.stem}_bloco_{block_number}.pdf"
 
-            img = element.get_image(document)
+            new_doc.save(page_path)
+            new_doc.close()
 
-            if img.width >= 100 and img.height >= 100:
-                picture_count += 1
-                image_path = img_dir / f"picture_{picture_count}.png"
-                img.save(image_path, format="PNG")
-                page_images.setdefault(page_number, []).append(str(image_path))
+            blocos.append(page_path)
 
-    return document, page_images
+    return blocos
+
 
 def ler_pdf_com_docling(pdf_path: Path):
-
     accelerator = AcceleratorOptions(
         device=AcceleratorDevice.CUDA if torch.cuda.is_available() else AcceleratorDevice.CPU
     )
 
     pdf_options = PdfPipelineOptions(
         do_ocr=True,
-        do_table_structure=False,
-        ocr_options=EasyOcrOptions(lang=["pt", "en"]),
-        accelerator_options=accelerator,
+        do_table_structure=True,
         generate_page_images=False,
-        images_scale=1.0,
-        generate_picture_images=False  # mantido False
+        generate_picture_images=False,
+        images_scale=0.7,
+        accelerator_options=accelerator,
+        ocr_options=EasyOcrOptions(lang=["pt", "en"]),
     )
 
     converter = DocumentConverter(
@@ -139,59 +153,55 @@ def ler_pdf_com_docling(pdf_path: Path):
         }
     )
 
-    result = converter.convert(pdf_path)
-    document = result.document
+    temp_dir = Path("temp_pages") / pdf_path.stem
 
-    return document
+    # fragmenta apenas para evitar estouro de memória
+    with pymupdf.open(pdf_path) as doc:
+        total_pages = len(doc)
 
+    if total_pages > 15:
+        paginas = split_pdf_em_blocos(pdf_path, temp_dir)
+    else:
+        paginas = [pdf_path]
+        temp_dir = None
 
-def limpar_texto(texto: str) -> str:
-    texto = re.sub(r"glyph<[^>]+>", "", texto)
-    texto = re.sub(r"[^\x00-\x7FÀ-ÿ0-9.,;:!?()%\-–—\n ]+", " ", texto)
-    texto = re.sub(r"\s+", " ", texto)
+    documentos_parciais = []
 
-    return texto.strip()
-
-def remover_linhas_repetidas(texto: str, limite_repeticao: int = 5) -> str:
-    linhas = [l.strip() for l in texto.split("\n") if l.strip()]
-    contagem = Counter(linhas)
-
-    linhas_filtradas = [
-        linha for linha in linhas
-        if contagem[linha] <= limite_repeticao
-    ]
-
-    return "\n".join(linhas_filtradas)
-
-def remover_watermark_curto(texto: str, limite_repeticao=3, tamanho_max=40):
-    linhas = [l.strip() for l in texto.split("\n") if l.strip()]
-    contagem = Counter(linhas)
-
-    linhas_filtradas = []
-    for linha in linhas:
-        if (
-            contagem[linha] > limite_repeticao
-            and len(linha) <= tamanho_max
-        ):
+    for pagina_pdf in paginas:
+        try:
+            result = converter.convert(pagina_pdf)
+            documentos_parciais.append(result.document)
+        except Exception as e:
+            print(f"[WARN] Bloco falhou: {e}")
             continue
-        linhas_filtradas.append(linha)
 
-    return "\n".join(linhas_filtradas)
+    if not documentos_parciais:
+        return None, None
 
+    return documentos_parciais, temp_dir
+
+
+# ======================================
+# PROCESSAMENTO
+# ======================================
 
 def processar_documento() -> bool:
-    metadata = db_metadata.buscar_pendente()
+    metadata = db_metadata.buscar_pendente(randomize=True)
     if not metadata:
         return False
 
     doc_id = metadata["id"]
     logger = criar_logger_documento(doc_id)
 
+    if documento_ja_indexado(doc_id):
+        print(f"[SKIP] Documento {doc_id} já indexado.")
+        db_metadata.atualizar_status(doc_id, "processado")
+        return True
+
     try:
         db_metadata.atualizar_status(doc_id, "em processamento")
 
         resultado = baixar_pdf_real(metadata["link_pdf"])
-
         if not resultado or not resultado[0]:
             db_metadata.atualizar_status(doc_id, "sem_pdf")
             return True
@@ -199,133 +209,132 @@ def processar_documento() -> bool:
         pdf_path, link_download = resultado
         db_metadata.atualizar_link_donwload(doc_id, link_download)
 
-        document = ler_pdf_com_docling(pdf_path)
-        # document, page_images = ler_pdf_com_docling(pdf_path)
+        documentos_parciais, temp_dir = ler_pdf_com_docling(pdf_path)
 
-        chunker = SemanticChunker(
-            model_name=DENSE_MODEL,
-            max_tokens=MAX_TOKENS
-        )
-
-        textos_por_pagina = defaultdict(str)
-
-        for element, _level in document.iterate_items():
-            if not hasattr(element, "text") or not element.text:
-                continue
-
-            page_number = element.prov[0].page_no if element.prov else None
-            if page_number is None:
-                continue
-
-            texto_limpo = limpar_texto(element.text)
-            texto_limpo = remover_linhas_repetidas(texto_limpo)
-            texto_limpo = remover_watermark_curto(texto_limpo)
-
-            if texto_limpo:
-                textos_por_pagina[page_number] += texto_limpo + "\n\n"
-
-        buffer = []
-        buffer_size = 4  # reduzido para estabilidade
-        total_chunks = 0
-        upload_failed = False
-
-        for page_number, bloco_texto in tqdm(textos_por_pagina.items()):
-
-            chunks = chunker.create_chunks(bloco_texto)
-
-            for text_chunk in chunks:
-
-                # ⚠️ proteção ColBERT (128 tokens)
-                if len(text_chunk.split()) > 120:
-                    text_chunk = " ".join(text_chunk.split()[:120])
-
-                total_chunks += 1
-
-                dense_embedding = list(
-                    dense_model.passage_embed([text_chunk])
-                )[0].tolist()
-
-                sparse_embedding = list(
-                    sparse_model.passage_embed([text_chunk])
-                )[0].as_object()
-
-                colbert_embedding = list(
-                    colbert_model.passage_embed([text_chunk])
-                )[0].tolist()
-
-                payload = {
-                    "text": text_chunk,
-                    "metadata": {
-                        "document_id": doc_id,
-                        "titulo": metadata.get("titulo"),
-                        "autores": metadata.get("autores"),
-                        "ano": metadata.get("ano"),
-                        "tipo_conteudo": metadata.get("tipo_conteudo"),
-                        "palavras_chave": metadata.get("palavras_chave"),
-                        "pagina": page_number,
-                    },
-                }
-
-                point = models.PointStruct(
-                    id=str(uuid.uuid4()),
-                    vector={
-                        "dense": dense_embedding,
-                        "sparse": sparse_embedding,
-                        "colbert": colbert_embedding,
-                    },
-                    payload=payload,
-                )
-
-                buffer.append(point)
-
-                if len(buffer) >= buffer_size:
-                    try:
-                        qdrant.upload_points(
-                            collection_name=COLLECTION_NAME,
-                            points=buffer,
-                            wait=True,
-                        )
-                        buffer.clear()
-                    except Exception as e:
-                        logger.exception(f"Erro batch Qdrant: {e}")
-                        upload_failed = True
-                        break
-
-            if upload_failed:
-                break
-
-        # 🔥 flush final FORA do loop principal
-        if not upload_failed and buffer:
-            try:
-                qdrant.upload_points(
-                    collection_name=COLLECTION_NAME,
-                    points=buffer,
-                    wait=True,
-                )
-                buffer.clear()
-            except Exception as e:
-                logger.exception(f"Erro batch final Qdrant: {e}")
-                upload_failed = True
-
-        if upload_failed:
+        if not documentos_parciais:
             db_metadata.atualizar_status(doc_id, "erro")
-            print(f"[ERRO] Documento {doc_id} falhou no upload.")
             return True
 
+        chunker = HybridChunker(
+            tokenizer=tokenizer_chunker,
+            max_tokens=MAX_TOKENS,
+            merge_peers=True
+        )
+
+        chunks = []
+        for doc in documentos_parciais:
+            chunks.extend(chunker.chunk(doc))
+
+        points = []
+        BATCH_SIZE = 8
+
+        for idx, chunk in tqdm(enumerate(chunks), total=len(chunks)):
+
+            text_chunk = chunk.text.strip()
+
+            if not text_chunk:
+                continue
+
+            # 🔥 Controle real por tokens (E5 safety)
+            tokens = hf_tokenizer(
+                text_chunk,
+                add_special_tokens=False,
+                truncation=False
+            )["input_ids"]
+
+            if len(tokens) > MAX_TOKENS:
+                tokens = tokens[:MAX_TOKENS]
+                text_chunk = hf_tokenizer.decode(tokens)
+
+            # 🔥 ColBERT safety (128 tokens ideal)
+            colbert_tokens = hf_tokenizer(
+                text_chunk,
+                add_special_tokens=False,
+                truncation=True,
+                max_length=128
+            )["input_ids"]
+
+            colbert_text = hf_tokenizer.decode(colbert_tokens)
+
+            # ==========================
+            # Embeddings
+            # ==========================
+
+            dense_embedding = list(
+                dense_model.passage_embed([text_chunk])
+            )[0].tolist()
+
+            sparse_embedding = list(
+                sparse_model.passage_embed([text_chunk])
+            )[0].as_object()
+
+            colbert_embedding = list(
+                colbert_model.passage_embed([colbert_text])
+            )[0].tolist()
+
+            # ==========================
+            # Payload estruturado
+            # ==========================
+
+            payload = {
+                "text": text_chunk,
+                "metadata": {
+                    "document_id": doc_id,
+                    "titulo": metadata.get("titulo"),
+                    "autores": metadata.get("autores"),
+                    "ano": metadata.get("ano"),
+                    "tipo_conteudo": metadata.get("tipo_conteudo"),
+                    "palavras_chave": metadata.get("palavras_chave"),
+                    "chunk_index": idx,
+                }
+            }
+
+            point = models.PointStruct(
+                id=str(uuid.uuid4()),
+                vector={
+                    "dense": dense_embedding,
+                    "sparse": sparse_embedding,
+                    "colbert": colbert_embedding,
+                },
+                payload=payload,
+            )
+
+            points.append(point)
+
+            if len(points) >= BATCH_SIZE:
+                qdrant.upload_points(
+                    collection_name=COLLECTION_NAME,
+                    points=points,
+                    wait=True,
+                )
+                points.clear()
+
+        # flush final
+        if points:
+            qdrant.upload_points(
+                collection_name=COLLECTION_NAME,
+                points=points,
+                wait=True,
+            )
+
         db_metadata.atualizar_status(doc_id, "processado")
-        print(f"[OK] Documento {doc_id} processado com {total_chunks} chunks.\n")
+
+        if temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+
+        print(f"[OK] Documento {doc_id} processado.\n")
         return True
 
     except Exception as e:
-        logger.exception(
-            f"Erro ao processar documento {doc_id}\n"
-            f"Metadata: {metadata}\n"
-            f"Erro: {str(e)}\n{'-'*80}\n"
-        )
-
+        logger.exception(f"Erro ao processar documento {doc_id}: {str(e)}")
         db_metadata.atualizar_status(doc_id, "erro")
-        print(f"[ERRO] Documento {doc_id} falhou. Log salvo.")
+        print(f"[ERRO] Documento {doc_id} falhou.")
         return True
+
+
+# ======================================
+# LOOP PRINCIPAL
+# ======================================
 
 while True:
     try:
@@ -335,4 +344,5 @@ while True:
     except Exception as e:
         print(f"Erro inesperado: {e}")
         continue
+
 print("Pipeline concluído.")
