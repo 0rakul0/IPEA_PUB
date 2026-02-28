@@ -185,8 +185,8 @@ def ler_pdf_com_docling(pdf_path: Path):
 # PROCESSAMENTO
 # ======================================
 
-def processar_documento() -> bool:
-    metadata = db_metadata.buscar_pendente(randomize=True)
+def processar_documento(metadata: dict) -> bool:
+
     if not metadata:
         return False
 
@@ -286,6 +286,9 @@ def processar_documento() -> bool:
                     "tipo_conteudo": metadata.get("tipo_conteudo"),
                     "palavras_chave": metadata.get("palavras_chave"),
                     "chunk_index": idx,
+                    "link_pdf": metadata.get("link_pdf"),
+                    "link_download": link_download,
+
                 }
             }
 
@@ -336,13 +339,15 @@ def processar_documento() -> bool:
 # LOOP PRINCIPAL
 # ======================================
 
-while True:
-    try:
-        sucesso = processar_documento()
-        if not sucesso:
-            break
-    except Exception as e:
-        print(f"Erro inesperado: {e}")
-        continue
+AUTOR = "Danilo"
+interesse = "inteligência"
+
+documentos = db_metadata.buscar_interesse(interesse)
+
+if not documentos:
+    print("Nenhum documento encontrado para o autor.")
+else:
+    for metadata in documentos:
+        processar_documento(metadata)
 
 print("Pipeline concluído.")

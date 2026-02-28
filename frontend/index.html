@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat IPEA</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="container">
+
+    <!-- LADO ESQUERDO -->
+    <div class="chat-container">
+      <div id="messages" class="messages"></div>
+
+      <div class="input-area">
+        <input type="text" id="userInput" placeholder="Pergunte algo...">
+        <button onclick="sendMessage()">Enviar</button>
+      </div>
+    </div>
+
+    <!-- LADO DIREITO -->
+    <div class="documents-container">
+      <h3>Documentos utilizados</h3>
+      <div id="documentsList"></div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

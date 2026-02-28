@@ -42,9 +42,11 @@ qdrant.create_collection(
 
 fields_to_index = [
     ("metadata.document_id", models.PayloadSchemaType.KEYWORD),
-    ("metadata.titulo", models.PayloadSchemaType.KEYWORD),
+    ("metadata.titulo", models.PayloadSchemaType.TEXT),
     ("metadata.ano", models.PayloadSchemaType.INTEGER),
-    ("metadata.tipo_conteudo", models.PayloadSchemaType.KEYWORD),
+    ("metadata.tipo_conteudo", models.PayloadSchemaType.TEXT),
+    ("metadata.autores", models.PayloadSchemaType.TEXT),
+    ("metadata.link_pdf", models.PayloadSchemaType.TEXT),
 ]
 
 for field_name, schema in fields_to_index:

@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     )
 
     qdrant_url: str
+    qdrant_api_key: str
     collecion_name: str = "publicacoes_ipea"
 
     dense_model: str = "intfloat/multilingual-e5-large"
