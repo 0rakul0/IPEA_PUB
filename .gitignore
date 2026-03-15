@@ -8,11 +8,21 @@ wheels/
 
 # Virtual environments
 .venv
-api/.env
-/ingestao/cache
-/ingestao/img
-/.idea
+.pytest_cache/
+.idea/
+
+# Environment files
 .env
 api/.env
-api/.env
-api/.env
+agents/.env
+
+# Generated ingestion artifacts
+ingestao/cache/
+ingestao/img/
+ingestao/logs/
+ingestao/temp_pages/
+
+# Local data
+data/*.db
+*.pyc
+*.log

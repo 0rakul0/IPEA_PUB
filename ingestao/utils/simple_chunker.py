@@ -22,8 +22,6 @@ class SimpleChunker:
 
     def create_chunks(self, text_content: str):
 
-        text_content = str(text_content).lower()
-
         paragraphs = []
 
         raw_paragraphs = [p.strip() for p in text_content.split("\n\n") if p.strip()]

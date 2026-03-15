@@ -1,19 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from typing import Optional
 from api.models.document_models import (
     DocumentListResponse,
     DocumentDetailResponse,
 )
 from api.services.document_service import DocumentService
-from api.config.settings import settings
+from api.dependencies import get_document_service
 
 router = APIRouter()
-
-document_service = DocumentService(
-    qdrant_url=settings.qdrant_url,
-    qdrant_api_key=settings.qdrant_api_key,
-    collection_name=settings.collecion_name,
-)
 
 
 @router.get(
@@ -25,6 +19,7 @@ async def list_documents(
     ano: Optional[int] = None,
     tipo: Optional[str] = None,
     limit: int = 50,
+    document_service: DocumentService = Depends(get_document_service),
 ):
     return document_service.search_documents(
         author=author,

@@ -1,30 +1,90 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Chat IPEA</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ipea Pub</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-  <div class="container">
-
-    <!-- LADO ESQUERDO -->
-    <div class="chat-container">
-      <div id="messages" class="messages"></div>
-
-      <div class="input-area">
-        <input type="text" id="userInput" placeholder="Pergunte algo...">
-        <button onclick="sendMessage()">Enviar</button>
+  <div class="app-shell">
+    <header class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">Repositorio Ipea</p>
+        <h1>Converse com as publicacoes de forma direta.</h1>
+        <p class="hero-text">
+          Pergunte sobre autores, temas e evidencias presentes no acervo e acompanhe
+          quais documentos sustentam cada resposta.
+        </p>
+        <div class="hero-chips">
+          <button class="prompt-chip" type="button" data-prompt="Quais publicacoes tratam de desigualdade social?">
+            Desigualdade social
+          </button>
+          <button class="prompt-chip" type="button" data-prompt="Quais estudos recentes falam sobre mercado de trabalho?">
+            Mercado de trabalho
+          </button>
+          <button class="prompt-chip" type="button" data-prompt="Resuma publicacoes sobre politica industrial.">
+            Politica industrial
+          </button>
+        </div>
       </div>
-    </div>
 
-    <!-- LADO DIREITO -->
-    <div class="documents-container">
-      <h3>Documentos utilizados</h3>
-      <div id="documentsList"></div>
-    </div>
+      <div class="hero-control panel">
+        <label class="field-label" for="apiBase">API base</label>
+        <input id="apiBase" class="api-input" type="url" placeholder="http://localhost:8080">
+        <p class="field-help">
+          Se deixar em branco, o frontend tenta usar `localhost:8080` quando a pagina estiver rodando localmente.
+        </p>
 
+        <label class="field-label" for="resultLimit">Fontes por resposta</label>
+        <input id="resultLimit" class="limit-input" type="number" min="1" max="10" value="3">
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel chat-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Assistente</p>
+            <h2>Chat RAG</h2>
+          </div>
+          <span id="statusBadge" class="status-badge">Pronto</span>
+        </div>
+
+        <div id="messages" class="messages" aria-live="polite"></div>
+
+        <form id="chatForm" class="composer">
+          <label class="sr-only" for="userInput">Pergunta</label>
+          <textarea
+            id="userInput"
+            rows="3"
+            placeholder="Digite sua pergunta sobre as publicacoes do Ipea"
+          ></textarea>
+
+          <div class="composer-actions">
+            <p class="composer-help">
+              Enter envia. Shift + Enter cria nova linha.
+            </p>
+            <button id="sendButton" type="submit">Enviar pergunta</button>
+          </div>
+        </form>
+      </section>
+
+      <aside class="panel sources-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker">Rastreabilidade</p>
+            <h2>Documentos usados</h2>
+          </div>
+        </div>
+
+        <p id="sourcesSummary" class="sources-summary">
+          As fontes usadas pela resposta vao aparecer aqui.
+        </p>
+
+        <div id="documentsList" class="documents-list"></div>
+      </aside>
+    </main>
   </div>
 
   <script src="app.js"></script>

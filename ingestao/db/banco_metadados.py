@@ -177,7 +177,7 @@ class MetadataDB:
                 query = """
                     SELECT *
                     FROM documentos
-                    WHERE status_ingestao != 'processado'
+                    WHERE status_ingestao = 'pendente'
                     ORDER BY id ASC
                     LIMIT 1;
                 """
@@ -215,4 +215,72 @@ class MetadataDB:
                 SELECT * FROM documentos
                 WHERE status_ingestao = 'erro'
             """)
+            return [dict(r) for r in cursor.fetchall()]
+
+    def buscar_pendentes_por_autor(self, autor: str):
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT *
+                FROM documentos
+                WHERE LOWER(autores) LIKE LOWER(?)
+                  AND status_ingestao = 'pendente'
+                ORDER BY id ASC
+            """, (f"%{autor}%",))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def buscar_autor(self, autor: str):
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM documentos
+                WHERE LOWER(autores) LIKE LOWER(?)
+            """, (f"%{autor}%",))
+            return [dict(r) for r in cursor.fetchall()]
+
+    def buscar_interesse(self, interesse: str, apenas_pendentes: bool = True):
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            query = """
+                SELECT * FROM documentos
+                WHERE (
+                    LOWER(titulo) LIKE LOWER(?)
+                    OR LOWER(resumo) LIKE LOWER(?)
+                    OR LOWER(palavras_chave) LIKE LOWER(?)
+                )
+            """
+            params = (f"%{interesse}%", f"%{interesse}%", f"%{interesse}%")
+            if apenas_pendentes:
+                query += " AND status_ingestao = 'pendente'"
+            query += " ORDER BY id ASC"
+            cursor.execute(query, params)
+            return [dict(r) for r in cursor.fetchall()]
+
+    def buscar_interesse_autor(
+        self,
+        interesse: str,
+        autor: str,
+        apenas_pendentes: bool = True,
+    ):
+        with self.conectar() as conn:
+            cursor = conn.cursor()
+            query = """
+                SELECT * FROM documentos
+                WHERE (
+                    LOWER(titulo) LIKE LOWER(?)
+                    OR LOWER(resumo) LIKE LOWER(?)
+                    OR LOWER(palavras_chave) LIKE LOWER(?)
+                )
+                  AND LOWER(autores) LIKE LOWER(?)
+            """
+            params = (
+                f"%{interesse}%",
+                f"%{interesse}%",
+                f"%{interesse}%",
+                f"%{autor}%",
+            )
+            if apenas_pendentes:
+                query += " AND status_ingestao = 'pendente'"
+            query += " ORDER BY id ASC"
+            cursor.execute(query, params)
             return [dict(r) for r in cursor.fetchall()]

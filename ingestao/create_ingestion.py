@@ -74,6 +74,7 @@ def criar_logger_documento(doc_id: str) -> logging.Logger:
 
     logger = logging.getLogger(f"doc_{doc_id}")
     logger.setLevel(logging.ERROR)
+    logger.handlers.clear()
 
     handler = logging.FileHandler(log_file, encoding="utf-8")
     formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
@@ -153,7 +154,7 @@ def ler_pdf_com_docling(pdf_path: Path):
         }
     )
 
-    temp_dir = Path("temp_pages") / pdf_path.stem
+    temp_dir = Path(__file__).resolve().parent / "temp_pages" / pdf_path.stem
 
     # fragmenta apenas para evitar estouro de memória
     with pymupdf.open(pdf_path) as doc:
@@ -322,9 +323,6 @@ def processar_documento(metadata: dict) -> bool:
 
         db_metadata.atualizar_status(doc_id, "processado")
 
-        if temp_dir:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-
         print(f"[OK] Documento {doc_id} processado.\n")
         return True
 
@@ -333,19 +331,45 @@ def processar_documento(metadata: dict) -> bool:
         db_metadata.atualizar_status(doc_id, "erro")
         print(f"[ERRO] Documento {doc_id} falhou.")
         return True
+    finally:
+        if "temp_dir" in locals() and temp_dir:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 # ======================================
 # LOOP PRINCIPAL
 # ======================================
 
-AUTOR = "Danilo"
+# while True:
+#     try:
+#         sucesso = processar_documento()
+#         if not sucesso:
+#             break
+#     except Exception as e:
+#         print(f"Erro inesperado: {e}")
+#         continue
+#
+# print("Pipeline concluído.")
+
+autor = "Danilo"
 interesse = "inteligência"
 
-documentos = db_metadata.buscar_interesse(interesse)
+if autor and interesse:
+    documentos = db_metadata.buscar_interesse_autor(interesse, autor)
+elif interesse:
+    documentos = db_metadata.buscar_interesse(interesse)
+elif autor:
+    documentos = db_metadata.buscar_pendentes_por_autor(autor)
+else:
+    documentos = []
+    while True:
+        metadata = db_metadata.buscar_pendente()
+        if not metadata:
+            break
+        documentos.append(metadata)
 
 if not documentos:
-    print("Nenhum documento encontrado para o autor.")
+    print("Nenhum documento pendente encontrado para os filtros informados.")
 else:
     for metadata in documentos:
         processar_documento(metadata)

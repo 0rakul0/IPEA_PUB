@@ -10,11 +10,14 @@ load_dotenv()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-def search_publicacoes(query: str, top_k: int = 3):
+def search_publicacoes(query: str, limit: int = 3, top_k: int | None = None):
     url = "http://localhost:8080/search"
+    if top_k is not None:
+        limit = top_k
+
     payload = {
         "query": query,
-        "top_k": top_k
+        "limit": limit
     }
     response = requests.post(url, json=payload)
     response.raise_for_status()
@@ -33,7 +36,7 @@ tools = [
                     "type": "string",
                     "description": "O tema ou assunto para o qual deseja buscar publicações."
                 },
-                "top_k": {
+                "limit": {
                     "type": "integer",
                     "description": "O número de publicações mais relevantes a serem retornadas (padrão é 3)."
                 }

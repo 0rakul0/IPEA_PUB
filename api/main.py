@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
-from routers import search_router, rag_router, document_router
 from fastapi.middleware.cors import CORSMiddleware
+from api.routers import document_router, rag_router, search_router
 
 app = FastAPI(title="API de busca das publicações do IPEA")
 
@@ -11,11 +11,13 @@ origins = [
     "http://localhost:63342",  # seu frontend atual (JetBrains)
     "http://localhost:3000",   # caso use outro server
     "http://127.0.0.1:63342",
+    "null",                    # quando o frontend e aberto via file://
 ]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,  # pode usar ["*"] em desenvolvimento
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],    # permite OPTIONS, POST, GET etc
     allow_headers=["*"],

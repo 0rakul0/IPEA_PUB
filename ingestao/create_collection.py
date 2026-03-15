@@ -13,31 +13,36 @@ qdrant = QdrantClient(
     timeout=120,
 )
 
-qdrant.delete_collection(COLLECTION_NAME)
+# Usado em testes iniciais para recriar a colecao do zero.
+# Em producao, manter comentado para nao apagar dados indexados.
+# qdrant.delete_collection(COLLECTION_NAME)
 
-qdrant.create_collection(
-    collection_name=COLLECTION_NAME,
-    vectors_config={
-        "dense": models.VectorParams(size=1024,
-                                     distance=models.Distance.COSINE,
-                                     on_disk=True),
-        "colbert": models.VectorParams(
-            size=128,
-            distance=models.Distance.COSINE,
-            multivector_config=models.MultiVectorConfig(
-                comparator=models.MultiVectorComparator.MAX_SIM
+if not qdrant.collection_exists(COLLECTION_NAME):
+    qdrant.create_collection(
+        collection_name=COLLECTION_NAME,
+        vectors_config={
+            "dense": models.VectorParams(size=1024,
+                                         distance=models.Distance.COSINE,
+                                         on_disk=True),
+            "colbert": models.VectorParams(
+                size=128,
+                distance=models.Distance.COSINE,
+                multivector_config=models.MultiVectorConfig(
+                    comparator=models.MultiVectorComparator.MAX_SIM
+                )
+            ),
+        },
+        sparse_vectors_config={"sparse": models.SparseVectorParams()},
+        quantization_config=models.ScalarQuantization(
+            scalar=models.ScalarQuantizationConfig(
+                type=models.ScalarType.INT8,
+                quantile=0.99,
+                always_ram=True
             )
-        ),
-    },
-    sparse_vectors_config={"sparse": models.SparseVectorParams()},
-    quantization_config=models.ScalarQuantization(
-        scalar=models.ScalarQuantizationConfig(
-            type=models.ScalarType.INT8,
-            quantile=0.99,
-            always_ram=True
         )
     )
-)
+else:
+    print(f"Colecao '{COLLECTION_NAME}' ja existe. Mantendo dados atuais.")
 
 
 fields_to_index = [
